@@ -1,0 +1,489 @@
+﻿@page "/search"
+@inject SemanticSearchManager SearchManager
+@inject ILogger<SearchPage> Logger
+
+<PageTitle>Suche</PageTitle>
+
+<div class="search-container">
+    <h1>📚 Semantische Dokumentensuche</h1>
+
+    <!-- ── Suchleiste ── -->
+    <div class="search-bar">
+        <div class="input-row">
+            <input type="text"
+                   class="search-input"
+                   placeholder="Suche in deinen Dokumenten..."
+                   @bind="searchQuery"
+                   @bind:event="oninput"
+                   @onkeydown="HandleKeyDown" />
+
+            <button class="btn btn-primary" @onclick="PerformSearch" disabled="@isSearching">
+                @if (isSearching)
+                {
+                    <span class="btn-spinner">🔄</span>
+                }
+                else
+                {
+                    <span>🔍 Suchen</span>
+                }
+            </button>
+        </div>
+
+        <!-- Suchmodus-Auswahl -->
+        <div class="search-options">
+            <label class="radio-label @(searchMode == SearchMode.Hybrid ? "active" : "")">
+                <input type="radio"
+                       name="searchMode"
+                       checked="@(searchMode == SearchMode.Hybrid)"
+                       @onclick="@(() => searchMode = SearchMode.Hybrid)" />
+                <span>
+                    <strong>Hybrid</strong> – semantisch + Tippfehler
+                </span>
+            </label>
+
+            <label class="radio-label @(searchMode == SearchMode.Semantic ? "active" : "")">
+                <input type="radio"
+                       name="searchMode"
+                       checked="@(searchMode == SearchMode.Semantic)"
+                       @onclick="@(() => searchMode = SearchMode.Semantic)" />
+                <span>
+                    <strong>Semantisch</strong> – Bedeutung / Kontext
+                </span>
+            </label>
+
+            <label class="radio-label @(searchMode == SearchMode.Fuzzy ? "active" : "")">
+                <input type="radio"
+                       name="searchMode"
+                       checked="@(searchMode == SearchMode.Fuzzy)"
+                       @onclick="@(() => searchMode = SearchMode.Fuzzy)" />
+                <span>
+                    <strong>Fuzzy</strong> – toleriert Tippfehler
+                </span>
+            </label>
+        </div>
+    </div>
+
+    <!-- ── Vorschläge bei wenigen Treffern ── -->
+    @if (suggestions.Count > 0)
+    {
+        <div class="suggestions-bar">
+            <span class="suggestions-label">Meinten Sie:</span>
+            @foreach (var s in suggestions)
+            {
+                <button class="suggestion-chip" @onclick="@(() => ApplySuggestion(s))">@s</button>
+            }
+        </div>
+    }
+
+    <!-- ── Ergebnisanzahl ── -->
+    @if (hasSearched)
+    {
+        <div class="results-meta">
+            <span>@searchResults.Count Ergebnis@(searchResults.Count == 1 ? "" : "se")</span>
+            <span class="duration">· @searchDurationMs ms</span>
+        </div>
+    }
+
+    <!-- ── Ergebnisse ── -->
+    @if (searchResults.Count > 0)
+    {
+        <div class="results-list">
+            @foreach (var hit in searchResults)
+            {
+                <article class="result-card">
+                    <!-- Header: Dateiname + Badge -->
+                    <div class="result-card-header">
+                        <h3 class="result-filename">@hit.Filename</h3>
+                        <span class="badge badge-@GetBadgeClass(hit.MatchType)">
+                            @GetBadgeLabel(hit.MatchType)
+                        </span>
+                    </div>
+
+                    <!-- Meta: Typ, Seite, Score -->
+                    <div class="result-card-meta">
+                        <span class="meta-chip">📄 @hit.FileType.ToUpper()</span>
+
+                        @if (hit.PageNumber.HasValue)
+                        {
+                            <span class="meta-chip">📖 Seite @hit.PageNumber</span>
+                        }
+
+                        <span class="meta-chip score-chip">
+                            🎯 @((hit.CombinedScore * 100).ToString("F0"))%
+                        </span>
+                    </div>
+
+                    <!-- Textausschnitt mit Highlighting -->
+                    <p class="result-snippet">
+                        @((MarkupString)BuildHighlightedSnippet(hit))
+                    </p>
+
+                    <!-- Footer: Detailscores -->
+                    <div class="result-card-footer">
+                        @if (hit.SemanticScore > 0)
+                        {
+                            <span class="detail-score">Semantisch: @((hit.SemanticScore * 100).ToString("F0"))%</span>
+                        }
+                        @if (hit.FuzzyScore > 0)
+                        {
+                            <span class="detail-score">Fuzzy: @((hit.FuzzyScore * 100).ToString("F0"))%</span>
+                        }
+                    </div>
+                </article>
+            }
+        </div>
+    }
+
+    <!-- ── Leerzustände ── -->
+    @if (hasSearched && searchResults.Count == 0)
+    {
+        <div class="empty-state">
+            <span class="empty-icon">😕</span>
+            <p>Keine Ergebnisse gefunden.</p>
+            <p class="empty-hint">Versuchen Sie andere Suchbegriffe oder wechseln Sie auf <strong>Fuzzy</strong>- oder <strong>Hybrid</strong>-Modus.</p>
+        </div>
+    }
+
+    @if (!hasSearched)
+    {
+        <div class="empty-state">
+            <span class="empty-icon">🔎</span>
+            <p>Geben Sie einen Suchbegriff ein</p>
+            <p class="empty-hint">Die semantische Suche versteht auch Synonyme und verwandte Begriffe – auch über Sprachgrenzen hinweg.</p>
+        </div>
+    }
+
+    <!-- ── Fehlermeldung ── -->
+    @if (errorMessage != null)
+    {
+        <div class="alert-error">⚠️ @errorMessage</div>
+    }
+</div>
+
+<!-- ─────────────────────── STYLES ─────────────────────── -->
+<style>
+    .search-container {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 24px 20px 60px;
+        font-family: system-ui, -apple-system, sans-serif;
+        color: #1e1e2e;
+    }
+
+    .search-container h1 {
+        font-size: 1.75rem;
+        margin: 0 0 24px;
+        color: #11827a;
+    }
+
+    /* ── Suchleiste ── */
+    .search-bar {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        padding: 18px;
+        box-shadow: 0 2px 8px rgba(0,0,0,.06);
+        margin-bottom: 16px;
+    }
+
+    .input-row {
+        display: flex;
+        gap: 10px;
+    }
+
+    .search-input {
+        flex: 1;
+        padding: 11px 16px;
+        font-size: 1rem;
+        border: 2px solid #cbd5e0;
+        border-radius: 8px;
+        outline: none;
+        transition: border-color .2s;
+    }
+    .search-input:focus { border-color: #11827a; }
+
+    .btn {
+        padding: 11px 22px;
+        font-size: 1rem;
+        font-weight: 600;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background .2s, opacity .2s;
+        white-space: nowrap;
+    }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    .btn-primary { background: #11827a; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #0c6e67; }
+
+    .btn-spinner { display: inline-block; animation: spin .8s linear infinite; }
+    @@keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Radio-Buttons ── */
+    .search-options {
+        display: flex;
+        gap: 8px;
+        margin-top: 14px;
+        flex-wrap: wrap;
+    }
+
+    .radio-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 14px;
+        border: 1px solid #e2e8f0;
+        border-radius: 20px;
+        cursor: pointer;
+        transition: border-color .2s, background .2s;
+        font-size: .9rem;
+    }
+    .radio-label input[type=radio] { accent-color: #11827a; }
+    .radio-label.active {
+        border-color: #11827a;
+        background: #edf7f6;
+    }
+
+    /* ── Vorschläge ── */
+    .suggestions-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        background: #fef3c7;
+        border: 1px solid #f6d860;
+        border-radius: 10px;
+        padding: 10px 14px;
+        margin-bottom: 12px;
+        font-size: .9rem;
+    }
+    .suggestions-label { color: #92400e; font-weight: 600; }
+    .suggestion-chip {
+        background: #fff;
+        border: 1px solid #f59e0b;
+        border-radius: 6px;
+        padding: 4px 12px;
+        cursor: pointer;
+        font-size: .88rem;
+        transition: background .15s;
+    }
+    .suggestion-chip:hover { background: #fef08a; }
+
+    /* ── Meta ── */
+    .results-meta {
+        font-size: .88rem;
+        color: #64748b;
+        margin-bottom: 14px;
+    }
+    .duration { margin-left: 6px; color: #94a3b8; }
+
+    /* ── Ergebnisse ── */
+    .results-list { display: flex; flex-direction: column; gap: 14px; }
+
+    .result-card {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 18px;
+        box-shadow: 0 1px 4px rgba(0,0,0,.05);
+        transition: box-shadow .2s;
+    }
+    .result-card:hover { box-shadow: 0 3px 10px rgba(0,0,0,.1); }
+
+    .result-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 8px;
+    }
+    .result-filename {
+        margin: 0;
+        font-size: 1.05rem;
+        color: #11827a;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* Badges */
+    .badge {
+        font-size: .75rem;
+        font-weight: 700;
+        padding: 3px 10px;
+        border-radius: 12px;
+        white-space: nowrap;
+    }
+    .badge-semantic { background: #dbeafe; color: #1d4ed8; }
+    .badge-fuzzy   { background: #ffedd5; color: #c2410c; }
+    .badge-both    { background: #dcfce7; color: #16a34a; }
+
+    /* Meta-Chips */
+    .result-card-meta {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+    }
+    .meta-chip {
+        font-size: .82rem;
+        color: #64748b;
+    }
+    .score-chip { font-weight: 600; color: #11827a; }
+
+    /* Snippet */
+    .result-snippet {
+        font-size: .92rem;
+        line-height: 1.6;
+        color: #374151;
+        margin: 0 0 10px;
+        background: #f8fafc;
+        border-radius: 8px;
+        padding: 10px 14px;
+    }
+    .result-snippet .hl {
+        background: #fef08a;
+        border-radius: 3px;
+        padding: 1px 3px;
+    }
+
+    /* Footer-Scores */
+    .result-card-footer {
+        display: flex;
+        gap: 16px;
+        font-size: .82rem;
+        color: #94a3b8;
+    }
+
+    /* ── Leerzustände ── */
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+    }
+    .empty-icon { font-size: 2.5rem; }
+    .empty-state p { margin: 8px 0 0; color: #64748b; font-size: 1.05rem; }
+    .empty-hint { font-size: .92rem !important; color: #94a3b8 !important; max-width: 480px; margin-left: auto !important; margin-right: auto !important; }
+
+    /* ── Fehler ── */
+    .alert-error {
+        background: #fee2e2;
+        color: #991b1b;
+        border: 1px solid #fca5a5;
+        border-radius: 10px;
+        padding: 12px 16px;
+        margin-top: 18px;
+    }
+</style>
+
+<!-- ─────────────────────── CODE ─────────────────────── -->
+@code {
+    // ── State ──
+    private string searchQuery = "";
+    private List<HybridSearchResult> searchResults = new();
+    private List<string> suggestions = new();
+    private bool isSearching;
+    private bool hasSearched;
+    private string? errorMessage;
+    private long searchDurationMs;
+    private SearchMode searchMode = SearchMode.Hybrid;
+
+    // ── Events ──
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            await PerformSearch();
+    }
+
+    private async Task PerformSearch()
+    {
+        if (string.IsNullOrWhiteSpace(searchQuery)) return;
+
+        isSearching = true;
+        hasSearched = true;
+        errorMessage = null;
+        suggestions.Clear();
+        StateHasChanged();
+
+        try
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+
+            searchResults = await SearchManager.SearchAsync(
+                searchQuery,
+                limit: 20,
+                mode: searchMode);
+
+            sw.Stop();
+            searchDurationMs = sw.ElapsedMilliseconds;
+
+            // Vorschläge nur anzeigen wenn wenige Treffer
+            if (searchResults.Count < 3)
+                suggestions = await SearchManager.SuggestCorrectionsAsync(searchQuery);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Suchfehler");
+            errorMessage = $"Fehler: {ex.Message}";
+            searchResults.Clear();
+        }
+        finally
+        {
+            isSearching = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ApplySuggestion(string word)
+    {
+        searchQuery = word;
+        suggestions.Clear();
+        _ = PerformSearch();
+    }
+
+    // ── Hilfsmethoden ──
+    private static string GetBadgeLabel(MatchType t) => t switch
+    {
+        MatchType.Semantic => "Semantisch",
+        MatchType.Fuzzy => "Fuzzy",
+        MatchType.Both => "Hybrid",
+        _ => ""
+    };
+
+    private static string GetBadgeClass(MatchType t) => t switch
+    {
+        MatchType.Semantic => "semantic",
+        MatchType.Fuzzy => "fuzzy",
+        MatchType.Both => "both",
+        _ => ""
+    };
+
+    /// <summary>
+    /// Gibt einen Textausschnitt zurück, in dem die Suchbegriffe mit &lt;span class="hl"&gt; markiert sind.
+    /// </summary>
+    private string BuildHighlightedSnippet(HybridSearchResult hit)
+    {
+        // Kontext-Ausschnitt vom Service holen
+        var raw = hit.GetHighlightedContent(searchQuery, contextLength: 220);
+
+        // HTML-Escape vor dem Highlighting
+        raw = System.Net.WebUtility.HtmlEncode(raw);
+
+        // Suchbegriffe hervorheben
+        if (!string.IsNullOrWhiteSpace(searchQuery))
+        {
+            foreach (var word in searchQuery.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var escaped = System.Text.RegularExpressions.Regex.Escape(
+                    System.Net.WebUtility.HtmlEncode(word));
+
+                raw = System.Text.RegularExpressions.Regex.Replace(
+                    raw,
+                    $@"(?i)(?<![<\w]){escaped}(?![>\w])",
+                    "<span class=\"hl\">$0</span>");
+            }
+        }
+
+        return raw;
+    }
+}

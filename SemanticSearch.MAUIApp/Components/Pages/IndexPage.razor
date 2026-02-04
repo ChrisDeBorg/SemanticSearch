@@ -1,0 +1,569 @@
+@page "/index"
+@using SemanticSearch.MAUIApp.Services
+@using SemanticSearch.Services
+@inject SemanticSearchManager SearchManager
+@inject IFilePickerService FilePicker
+@inject ILogger<IndexPage> Logger
+
+<PageTitle>Dokumente indexieren</PageTitle>
+
+<div class="index-container">
+    <h1>📥 Dokumente indexieren</h1>
+
+    <!-- ── Upload-Bereich ── -->
+    <section class="card">
+        <h2>Neue Dokumente hinzufügen</h2>
+        <p class="supported-formats">Unterstützte Formate: PDF · EPUB · TXT · MD · HTML</p>
+
+        <button class="btn btn-primary btn-lg"
+                @onclick="SelectFiles"
+                disabled="@isIndexing">
+            📁 Dateien auswählen
+        </button>
+
+        <!-- Vorschau der gewählten Dateien -->
+        @if (selectedFiles.Count > 0)
+        {
+            <div class="file-list">
+                <div class="file-list-header">
+                    <span>@selectedFiles.Count Datei@(selectedFiles.Count == 1 ? "" : "en") ausgewählt</span>
+                    <button class="btn-clear" @onclick="ClearSelection">✕ Leeren</button>
+                </div>
+
+                <ul>
+                    @foreach (var f in selectedFiles)
+                    {
+                        <li>
+                            <span class="file-icon">@GetFileIcon(f.Extension)</span>
+                            <span class="file-name">@f.Name</span>
+                            <span class="file-size">@FormatBytes(f.Length)</span>
+                        </li>
+                    }
+                </ul>
+
+                <button class="btn btn-success"
+                        @onclick="StartIndexing"
+                        disabled="@isIndexing">
+                    ▶️ Indexierung starten
+                </button>
+            </div>
+        }
+    </section>
+
+    <!-- ── Fortschritt ── -->
+    @if (isIndexing && currentProgress != null)
+    {
+        <section class="card card-progress">
+            <h2>Indexierung läuft…</h2>
+
+            <!-- Gesamtfortschritt -->
+            <div class="progress-group">
+                <div class="progress-label">
+                    Datei @currentProgress.CurrentFile von @currentProgress.TotalFiles
+                    · <strong>@currentProgress.CurrentFilename</strong>
+                </div>
+                <div class="progress-track">
+                    <div class="progress-fill" style="width:@(currentProgress.OverallPercentage)%"></div>
+                </div>
+                <div class="progress-value">@currentProgress.OverallPercentage %</div>
+            </div>
+
+            <!-- Aktueller Schritt -->
+            @if (currentProgress.CurrentFileProgress != null)
+            {
+                <div class="progress-group progress-sub">
+                    <div class="progress-label">
+                        @currentProgress.CurrentFileProgress.Stage
+                        @if (currentProgress.CurrentFileProgress.TotalChunks > 0)
+                        {
+                            <span>· Chunk @currentProgress.CurrentFileProgress.CurrentChunk / @currentProgress.CurrentFileProgress.TotalChunks</span>
+                        }
+                    </div>
+                    <div class="progress-track progress-track-sm">
+                        <div class="progress-fill" style="width:@(currentProgress.CurrentFileProgress.Percentage)%"></div>
+                    </div>
+                </div>
+            }
+        </section>
+    }
+
+    <!-- ── Ergebnisse der Indexierung ── -->
+    @if (indexResults.Count > 0)
+    {
+        <section class="card">
+            <h2>Ergebnisse</h2>
+
+            <div class="summary-row">
+                <div class="summary-chip summary-ok">✅ @indexResults.Count(r => r.Success) erfolgreich</div>
+                <div class="summary-chip summary-err">❌ @indexResults.Count(r => !r.Success) fehlgeschlagen</div>
+            </div>
+
+            <ul class="result-list">
+                @foreach (var r in indexResults)
+                {
+                    <li class="result-item @(r.Success ? "ok" : "err")">
+                        <span class="result-icon">@(r.Success ? "✅" : "❌")</span>
+                        <div class="result-text">
+                            <strong>@Path.GetFileName(r.Filepath)</strong>
+                            @if (r.Success)
+                            {
+                                <span>@r.TotalChunks Chunks · @r.Duration.TotalSeconds.ToString("F2") s</span>
+                            }
+                            else
+                            {
+                                <span class="error-msg">@r.ErrorMessage</span>
+                            }
+                        </div>
+                    </li>
+                }
+            </ul>
+        </section>
+    }
+
+    <!-- ── Bereits indexierte Dokumente ── -->
+    <section class="card">
+        <div class="section-header">
+            <h2>📚 Indexierte Dokumente <span class="count">(@documents.Count)</span></h2>
+            <button class="btn btn-sm btn-secondary" @onclick="LoadDocuments" disabled="@isLoading">
+                🔄 Aktualisieren
+            </button>
+        </div>
+
+        @if (isLoading)
+        {
+            <p class="loading-hint">Lade…</p>
+        }
+        else if (documents.Count == 0)
+        {
+            <div class="empty-state">
+                <span class="empty-icon">📭</span>
+                <p>Noch keine Dokumente indexiert.</p>
+            </div>
+        }
+        else
+        {
+            <div class="doc-grid">
+                @foreach (var doc in documents)
+                {
+                    <article class="doc-card">
+                        <div class="doc-card-header">
+                            <span class="doc-type-badge">@doc.FileType.ToUpper()</span>
+                            <button class="btn-icon btn-delete"
+                                    @onclick="@(() => ConfirmDelete(doc))"
+                                    title="Aus Index entfernen">🗑️</button>
+                        </div>
+
+                        <h3 class="doc-name">@doc.Filename</h3>
+
+                        <div class="doc-meta">
+                            <span>📊 @doc.TotalChunks Chunks</span>
+                            <span>📦 @FormatBytes(doc.FileSizeBytes)</span>
+                            <span>📅 @doc.IndexedDate.ToString("dd.MM.yy HH:mm")</span>
+                        </div>
+
+                        <p class="doc-path" title="@doc.Filepath">@doc.Filepath</p>
+                    </article>
+                }
+            </div>
+        }
+    </section>
+</div>
+
+<!-- ─────────────────────── STYLES ─────────────────────── -->
+<style>
+    .index-container {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 24px 20px 60px;
+        font-family: system-ui, -apple-system, sans-serif;
+        color: #1e1e2e;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    .index-container h1 {
+        font-size: 1.75rem;
+        margin: 0;
+        color: #11827a;
+    }
+
+    /* ── Cards ── */
+    .card {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        padding: 22px;
+        box-shadow: 0 2px 8px rgba(0,0,0,.06);
+    }
+    .card h2 {
+        margin: 0 0 6px;
+        font-size: 1.15rem;
+        color: #1e293b;
+    }
+    .card-progress { border-color: #11827a; background: #f0fdfc; }
+
+    /* ── Buttons ── */
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 20px;
+        font-size: .95rem;
+        font-weight: 600;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: background .2s, opacity .2s;
+    }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-lg { padding: 13px 28px; font-size: 1.05rem; }
+    .btn-sm { padding: 6px 14px; font-size: .85rem; }
+
+    .btn-primary { background: #11827a; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #0c6e67; }
+
+    .btn-success { background: #16a34a; color: #fff; margin-top: 16px; }
+    .btn-success:hover:not(:disabled) { background: #15803d; }
+
+    .btn-secondary { background: #cbd5e0; color: #1e293b; }
+    .btn-secondary:hover:not(:disabled) { background: #b0bec5; }
+
+    .btn-clear {
+        background: none;
+        border: none;
+        color: #94a3b8;
+        font-size: .85rem;
+        cursor: pointer;
+    }
+    .btn-clear:hover { color: #e11d48; }
+
+    .btn-icon {
+        background: none;
+        border: none;
+        font-size: 1.15rem;
+        cursor: pointer;
+        padding: 4px;
+        transition: transform .15s;
+    }
+    .btn-icon:hover { transform: scale(1.25); }
+
+    /* ── Supportinfo ── */
+    .supported-formats {
+        color: #94a3b8;
+        font-size: .88rem;
+        margin: 0 0 18px;
+    }
+
+    /* ── Dateiliste ── */
+    .file-list {
+        margin-top: 18px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 14px;
+    }
+    .file-list-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: .88rem;
+        color: #64748b;
+        margin-bottom: 10px;
+    }
+    .file-list ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+    .file-list li {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 0;
+        border-bottom: 1px solid #e2e8f0;
+        font-size: .92rem;
+    }
+    .file-list li:last-child { border-bottom: none; }
+    .file-icon { font-size: 1.1rem; }
+    .file-name { flex: 1; color: #1e293b; }
+    .file-size { color: #94a3b8; font-size: .85rem; }
+
+    /* ── Fortschritt ── */
+    .progress-group { margin-bottom: 14px; }
+    .progress-sub { margin-top: 14px; }
+    .progress-label { font-size: .88rem; color: #475569; margin-bottom: 6px; }
+    .progress-track {
+        width: 100%;
+        height: 20px;
+        background: #e2e8f0;
+        border-radius: 10px;
+        overflow: hidden;
+    }
+    .progress-track-sm { height: 8px; border-radius: 4px; }
+    .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #11827a, #5eead4);
+        border-radius: inherit;
+        transition: width .3s ease;
+    }
+    .progress-value {
+        text-align: right;
+        font-size: .85rem;
+        font-weight: 700;
+        color: #11827a;
+        margin-top: 4px;
+    }
+
+    /* ── Zusammenfassung ── */
+    .summary-row { display: flex; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+    .summary-chip {
+        flex: 1;
+        min-width: 140px;
+        text-align: center;
+        padding: 10px;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: .92rem;
+    }
+    .summary-ok  { background: #dcfce7; color: #15803d; }
+    .summary-err { background: #fee2e2; color: #dc2626; }
+
+    /* ── Ergebnisliste ── */
+    .result-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+    .result-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        font-size: .92rem;
+    }
+    .result-item.ok  { background: #f0fdf4; border-left: 3px solid #16a34a; }
+    .result-item.err { background: #fef2f2; border-left: 3px solid #dc2626; }
+    .result-icon { font-size: 1.15rem; }
+    .result-text strong { display: block; color: #1e293b; }
+    .result-text span   { color: #64748b; font-size: .85rem; }
+    .error-msg { color: #dc2626 !important; }
+
+    /* ── Dokumenten-Grid ── */
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+    }
+    .section-header h2 { margin: 0; }
+    .count { color: #94a3b8; font-weight: 400; font-size: .95rem; }
+
+    .doc-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 14px;
+    }
+
+    .doc-card {
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 16px;
+        background: #fafafa;
+        transition: box-shadow .2s;
+    }
+    .doc-card:hover { box-shadow: 0 3px 10px rgba(0,0,0,.1); }
+
+    .doc-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+    .doc-type-badge {
+        font-size: .72rem;
+        font-weight: 700;
+        background: #dbeafe;
+        color: #1d4ed8;
+        padding: 3px 10px;
+        border-radius: 12px;
+    }
+
+    .doc-name {
+        margin: 0 0 8px;
+        font-size: 1rem;
+        color: #11827a;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .doc-meta {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        font-size: .82rem;
+        color: #64748b;
+        margin-bottom: 8px;
+    }
+    .doc-path {
+        margin: 0;
+        font-size: .78rem;
+        color: #94a3b8;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    /* ── Leerzustände ── */
+    .empty-state { text-align: center; padding: 40px 20px; }
+    .empty-icon  { font-size: 2rem; }
+    .empty-state p { color: #64748b; margin: 8px 0 0; }
+
+    .loading-hint { color: #94a3b8; font-style: italic; }
+
+    .btn-delete:hover { filter: drop-shadow(0 0 3px rgba(220,38,38,.5)); }
+</style>
+
+<!-- ─────────────────────── CODE ─────────────────────── -->
+@code {
+    // ── State ──
+    private List<PickedFileResult> selectedFiles = new();
+    private List<DocumentInfo> documents = new();
+    private List<IndexResult> indexResults = new();
+    private bool isIndexing;
+    private bool isLoading;
+    private BatchIndexProgress? currentProgress;
+
+    // ── Lifecycle ──
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDocuments();
+    }
+
+    // ── Dateiauswahl ──
+    private async Task SelectFiles()
+    {
+        try
+        {
+            var picked = await FilePicker.PickMultipleFilesAsync();
+
+            // Neue Dateien zur Auswahl hinzufügen (Duplikate nach Name filtern)
+            var existingNames = new HashSet<string>(selectedFiles.Select(f => f.Name));
+            foreach (var f in picked)
+            {
+                if (existingNames.Add(f.Name))
+                    selectedFiles.Add(f);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fehler bei der Dateiauswahl");
+        }
+    }
+
+    private void ClearSelection()
+    {
+        selectedFiles.Clear();
+    }
+
+    // ── Indexierung ──
+    private async Task StartIndexing()
+    {
+        if (selectedFiles.Count == 0) return;
+
+        isIndexing = true;
+        indexResults.Clear();
+        StateHasChanged();
+
+        try
+        {
+            var paths = selectedFiles.Select(f => f.FullPath).ToList();
+
+            var progress = new Progress<BatchIndexProgress>(p =>
+            {
+                currentProgress = p;
+                InvokeAsync(StateHasChanged);
+            });
+
+            indexResults = await SearchManager.IndexMultipleDocumentsAsync(paths, progress);
+
+            // Liste aktualisieren
+            await LoadDocuments();
+
+            // Auswahl leeren nach Erfolg
+            selectedFiles.Clear();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Indexierungsfehler");
+        }
+        finally
+        {
+            isIndexing = false;
+            currentProgress = null;
+            StateHasChanged();
+        }
+    }
+
+    // ── Dokumente laden ──
+    private async Task LoadDocuments()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            documents = await SearchManager.GetAllDocumentsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Fehler beim Laden der Dokumentliste");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    // ── Löschen ──
+    private async Task ConfirmDelete(DocumentInfo doc)
+    {
+        // Blazor Hybrid:Js.InvokeVoidAsync oder ein eigener Dialog.
+        // Hier vereinfacht mit einem flag-basiertem Ansatz.
+        // In Produktion: eigene Modal-Komponente oder JS-Interop.
+        try
+        {
+            await SearchManager.DeleteDocumentAsync(doc.Id);
+            await LoadDocuments();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Löschfehler");
+        }
+    }
+
+    // ── Helpers ──
+    private static string GetFileIcon(string ext) => ext switch
+    {
+        ".pdf"  => "📕",
+        ".epub" => "📗",
+        ".txt"  => "📄",
+        ".md"   => "📝",
+        ".html" => "🌐",
+        ".htm"  => "🌐",
+        _       => "📄"
+    };
+
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = { "B", "KB", "MB", "GB" };
+        double size = bytes;
+        int unit = 0;
+
+        while (size >= 1024 && unit < units.Length - 1)
+        {
+            size /= 1024;
+            unit++;
+        }
+
+        return $"{size:0.##} {units[unit]}";
+    }
+}

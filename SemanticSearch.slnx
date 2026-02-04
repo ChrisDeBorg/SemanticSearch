@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="SemanticSearch.ConsoleApp/SemanticSearch.ConsoleApp.csproj" />
+  <Project Path="SemanticSearch.MAUIApp/SemanticSearch.MAUIApp.csproj" Id="908466c9-527e-4cba-a656-01aac1cea6fd">
+    <Deploy Solution="Debug|*" />
+  </Project>
+  <Project Path="SemanticSearch.Services/SemanticSearch.Services.csproj" />
+</Solution>
