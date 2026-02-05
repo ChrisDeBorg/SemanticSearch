@@ -65,13 +65,21 @@
 
     <ItemGroup>
       <None Remove="Models\all-MiniLM-L6-v2.onnx" />
-      <None Remove="Models\model.onnx" />
     </ItemGroup>
 
     <ItemGroup>
       <Content Include="Models\all-MiniLM-L6-v2.onnx">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </Content>
+    </ItemGroup>
+
+    <ItemGroup>
+      <EmbeddedResource Include="Models\tokenizer.json">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </EmbeddedResource>
+      <EmbeddedResource Include="Models\vocab.txt">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </EmbeddedResource>
     </ItemGroup>
 
     <ItemGroup>

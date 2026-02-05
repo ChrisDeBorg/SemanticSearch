@@ -162,7 +162,7 @@ public class HybridSearchService
         // Verwende eine sehr große Zahl für limit um alle Chunks zu bekommen
         // In Produktion würde man hier direkten Datenbankzugriff verwenden
         var dummyEmbedding = new float[_embeddingService.EmbeddingDimension];
-        return await _vectorSearch.SearchAsync(dummyEmbedding, 10000, documentId, pageNumberFilter);
+        return await _vectorSearch.SearchAsync(dummyEmbedding, 4096, documentId, pageNumberFilter);
     }
 
     private float CombineScores(float semanticScore, float fuzzyScore)
