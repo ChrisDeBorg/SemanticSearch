@@ -1,4 +1,8 @@
 <Solution>
+  <Project Path="Alexandria.API/Alexandria.API.csproj" Id="39d6423b-7079-440d-91ba-a8aa024203f3" />
+  <Project Path="Alexandria.Crawler.Repositories/Alexandria.Crawler.Repositories.csproj" Id="ec69feca-87bf-48d9-8a64-160ba21ed4c0" />
+  <Project Path="Alexandria.Crawler.Services/Alexandria.Crawler.Services.csproj" Id="8c8963b3-c7b0-455d-82dc-302274be24a2" />
+  <Project Path="Alexandria.Migrations/Alexandria.Migrations.csproj" Id="19e560af-1845-477b-b70d-75738cf6770b" />
   <Project Path="SemanticSearch.ConsoleApp/SemanticSearch.ConsoleApp.csproj" />
   <Project Path="SemanticSearch.MAUIApp/SemanticSearch.MAUIApp.csproj" Id="908466c9-527e-4cba-a656-01aac1cea6fd">
     <Deploy Solution="Debug|*" />

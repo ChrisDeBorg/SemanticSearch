@@ -85,11 +85,16 @@
     <ItemGroup>
         <PackageReference Include="FuzzySharp" Version="2.0.2" />
         <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.2" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.2" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.2">
+          <PrivateAssets>all</PrivateAssets>
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
         <PackageReference Include="Microsoft.Extensions.VectorData.Abstractions" Version="9.7.0" />
         <PackageReference Include="Microsoft.Maui.Controls" Version="10.0.31" />
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="10.0.31" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.2" />
-        <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.23.2" />
+        <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" />
         <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
         <PackageReference Include="Microsoft.SemanticKernel" Version="1.70.0" />
         <PackageReference Include="Microsoft.SemanticKernel.Abstractions" Version="1.70.0" />

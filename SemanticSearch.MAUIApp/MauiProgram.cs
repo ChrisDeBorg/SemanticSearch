@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
+using Minerva.Persistence;
 using SemanticSearch.MAUIApp.Services;
 using SemanticSearch.Services;
 
@@ -57,6 +58,29 @@ namespace SemanticSearch.MAUIApp
 
             // Optionale separate Services falls benötigt
             builder.Services.AddSingleton<IFilePickerService, FilePickerService>();
+
+            // ═══════════════════════════════════════════════════════════
+            // NER & Entity Extraction Services
+            // ═══════════════════════════════════════════════════════════
+
+            builder.Services.AddSingleton(sp =>
+            {
+                var embeddingService = new EmbeddingService(modelPath, embeddingDimension: 384);
+                return embeddingService;
+            });
+
+            builder.Services.AddSingleton(sp =>
+            {
+                var embeddingService = sp.GetRequiredService<EmbeddingService>();
+                var apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
+                return new NerService(embeddingService, apiKey);
+            });
+
+            builder.Services.AddScoped(sp =>
+            {
+                var dbContext = sp.GetRequiredService<MinervaDbContext>();
+                return new EntityPersistenceService(dbContext);
+            });
 
             return builder.Build();
         }
